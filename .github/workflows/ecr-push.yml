@@ -1,0 +1,48 @@
+# GitHub Actions のワークフロー名（Actions画面に表示される名前）
+name: Push kaggle-ingest to ECR
+
+# このワークフローが動き出す条件
+on:
+  push:
+    branches:
+      - main # main ブランチに push されたときだけ実行する
+
+# このワークフローに与える権限の指定
+permissions:
+  id-token: write # GitHub が AWS に OIDC 認証用の身元証明トークンを発行するために必須
+  contents: read  # リポジトリ内のコード（Dockerfile など）を読み取るために必要
+
+# 実際に実行する処理のまとまり
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest # GitHub が用意する Ubuntu の仮想マシン上で実行する
+    steps:
+      # 1. リポジトリのコード（Dockerfile や scripts など）を仮想マシンに取得する
+      - name: Checkout repository
+        # GitHub公式のチェックアウト処理（v4系）を呼び出し、リポジトリのファイルを配置する
+        uses: actions/checkout@v4
+
+      # 2. 固定のアクセスキーを使わず、OIDC で AWS の IAM ロールを一時的に引き受ける
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ECR_PUSH_ROLE_ARN }} # GitHub Secrets に登録した IAM ロール ARN
+          aws-region: ap-northeast-1 # 東京リージョンを指定
+
+      # 3. 引き受けた IAM ロールの権限で ECR にログインし、一時トークンを取得する
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # 4. Docker イメージをビルドして、ECR の kaggle-ingest リポジトリへ push する
+      - name: Build and push Docker image
+        env:
+          # 直前のログインステップが出力した ECR レジストリ URL（例: XXXXXXXXXX.dkr.ecr.ap-northeast-1.amazonaws.com）
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: kaggle-ingest # プッシュ先の ECR リポジトリ名
+          IMAGE_TAG: latest # 付与するタグ名
+        run: |
+          # リポジトリ直下の Dockerfile を使ってイメージをビルドする
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          # ビルドしたイメージを ECR へアップロードする
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
