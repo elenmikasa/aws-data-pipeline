@@ -6,6 +6,11 @@ on:
   push:
     branches:
       - main # main ブランチに push されたときだけ実行する
+    paths:
+      - "Dockerfile"
+      - "requirements.txt"
+      - "scripts/ingest_kaggle_to_s3.py"
+      - ".github/workflows/ecr-push.yml"
 
 # このワークフローに与える権限の指定
 permissions:
